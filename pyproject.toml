@@ -5,10 +5,16 @@ description = ""
 authors = ["Blackgolyb <andrejomelnickij@gmail.com>"]
 license = "MIT"
 readme = "README.md"
+packages = [{ include = "bot" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
 pygithub = "^2.1.1"
+aiogram = "^3.1.1"
+envparse = "^0.2.0"
+sqlalchemy = "^2.0.22"
+psycopg = "^3.1.12"
+alembic = "^1.12.0"
 
 
 [tool.poetry.group.dev.dependencies]
