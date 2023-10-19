@@ -1,0 +1,78 @@
+version: "3.0"
+services:
+    postgres:
+        container_name: telenote_postgres
+        image: postgres:16
+        restart: always
+        env_file:
+            - deploy.env
+        ports:
+            - "5432:5432"
+        networks:
+            - custom
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'",
+                ]
+            interval: 10s
+            timeout: 3s
+            retries: 3
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+            
+    pgadmin:
+        container_name: telenote_pgadmin4
+        image: dpage/pgadmin4
+        restart: always
+        ports:
+            - "5050:80"
+        depends_on:
+            - postgres
+        environment:
+            PGADMIN_DEFAULT_EMAIL: admin@admin.com
+            PGADMIN_DEFAULT_PASSWORD: root
+        networks:
+            - custom
+        volumes:
+            - pgadmin-data:/var/lib/pgadmin
+
+    alembic_migrations:
+        container_name: telenote_alembic_migrations
+        image: telenote_alembic_migrations # Specify the name of the Docker image to be built
+        command: bash ./run_migartions.sh
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - deploy.env
+        build:
+            context: .
+            dockerfile: Dockerfile
+        networks:
+            - custom
+
+    bot:
+        container_name: telenote_bot
+        image: telenote_bot
+        depends_on:
+            postgres:
+                condition: service_healthy
+            alembic_migrations:
+                condition: service_started
+        env_file:
+            - deploy.env
+        build:
+            context: .
+            dockerfile: Dockerfile
+        networks:
+            - custom
+
+networks:
+    custom:
+        driver: bridge
+
+volumes:
+    pgadmin-data:
+    postgres-data:
