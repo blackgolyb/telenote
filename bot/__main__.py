@@ -1,6 +1,6 @@
 import asyncio
-from io import BytesIO
 import logging
+import os
 from pathlib import Path
 import sys
 
@@ -23,6 +23,7 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 import github
+import whisper
 
 from bot.middlewares import DbSessionMiddleware
 from bot.services.user_dal import UserDAL
@@ -30,6 +31,8 @@ from bot.services.note_appender import NoteUser
 from bot.config import config
 from bot.services.utils import batch
 
+model_size = "base"
+whisper_model = whisper.load_model(model_size)
 form_router = Router()
 
 
@@ -62,36 +65,6 @@ async def command_start(
     await state.set_state(RegisterForm.register_start)
     await message.answer(
         f"Nice to meet you, {html.quote(message.from_user.full_name)}!\nLet's get started with registration",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard=[
-                [
-                    KeyboardButton(text="Register"),
-                ]
-            ],
-            resize_keyboard=True,
-        ),
-    )
-
-
-# @form_router.message()
-async def receive_first_message(
-    message: Message, state: FSMContext, session: AsyncSession
-) -> None:
-    dal = UserDAL(session)
-    user = await dal.get_user_by_id(message.from_user.id)
-    if user is not None:
-        await state.set_state(RegisterForm.register_end)
-        await message.answer(
-            f"Hi, {html.quote(message.from_user.full_name)}!\nThe message has been sent",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        note_user = NoteUser(user)
-        await note_user.append_note(message.text)
-        return
-
-    await state.set_state(RegisterForm.register_start)
-    await message.answer(
-        f"Nice to meet you, {html.quote(message.from_user.full_name)}!\nLet's get started with registration before sending notes",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
                 [
@@ -181,7 +154,7 @@ async def process_github_token(message: Message, state: FSMContext) -> None:
 
     keyboard = batch(repos_names_keyboard, 3)
 
-    # await message.bot.delete_message(message.chat.id, message.message_id)
+    await message.bot.delete_message(message.chat.id, message.message_id)
     await state.update_data(github_username=github_username)
     await state.update_data(github_token=github_token)
     await state.set_state(RegisterForm.notes_repository)
@@ -284,7 +257,6 @@ class GithubFileSelection(object):
             if file_path == "/":
                 options_keyboards = []
             else:
-                print(file_path, self.get_parent_path(file_path))
                 options_keyboards = [
                     [
                         InlineKeyboardButton(
@@ -455,16 +427,50 @@ async def process_note_path_select(
     )
 
 
-@form_router.message(RegisterForm.register_end, F.text)
-async def add_note(message: Message, session: AsyncSession) -> None:
+class RegistrationVerifier(object):
+    def __init__(self, registration_verified_filter):
+        self.registration_verified_filter = registration_verified_filter
+
+    def __call__(self, observer, *filters, **kwargs):
+        def decorator(func):
+            func_observer = observer(
+                self.registration_verified_filter, *filters, **kwargs
+            )
+            func_observer(func)
+
+            @observer(*filters, **kwargs)
+            async def wrap(
+                message: Message,
+                state: FSMContext,
+                session: AsyncSession,
+            ) -> None:
+                dal = UserDAL(session)
+                user = await dal.get_user_by_id(message.from_user.id)
+                if user is None:
+                    await message.answer("Please register first.")
+                    return
+
+                await state.set_state(RegisterForm.register_end)
+                await func(message=message, session=session, state=state)
+
+            return wrap
+
+        return decorator
+
+
+verify_register = RegistrationVerifier(RegisterForm.register_end)
+
+
+@verify_register(form_router.message, F.text)
+async def add_note(message: Message, session: AsyncSession, **kwargs) -> None:
     dal = UserDAL(session)
     user = await dal.get_user_by_id(message.from_user.id)
     note_user = NoteUser.create_from_orm(user)
     await note_user.append_note(message.text)
 
 
-@form_router.message(RegisterForm.register_end, F.photo)
-async def upload_photo(message: Message, session: AsyncSession) -> None:
+@verify_register(form_router.message, F.photo)
+async def upload_photo(message: Message, session: AsyncSession, **kwargs) -> None:
     dal = UserDAL(session)
     user = await dal.get_user_by_id(message.from_user.id)
     note_user = NoteUser.create_from_orm(user)
@@ -475,44 +481,22 @@ async def upload_photo(message: Message, session: AsyncSession) -> None:
     await note_user.upload_photo(photo_b)
 
 
-async def entrypoint(
-    message: Message,
-    state: FSMContext,
-    session: AsyncSession,
-    check_correct_coroutine,
+@verify_register(form_router.message, F.voice)
+async def add_note_from_voice(
+    message: Message, session: AsyncSession, **kwargs
 ) -> None:
     dal = UserDAL(session)
     user = await dal.get_user_by_id(message.from_user.id)
-    if user is None:
-        await message.answer("Please register first.")
-        return
+    note_user = NoteUser.create_from_orm(user)
 
-    await state.set_state(RegisterForm.register_end)
-    await check_correct_coroutine
+    fname = f"{message.from_user.id}_{message.message_id}.mp3"
+    voice = await message.bot.get_file(message.voice.file_id)
+    await message.bot.download_file(voice.file_path, fname)
 
+    result = whisper_model.transcribe(fname)
+    os.remove(fname)
 
-@form_router.message(F.text)
-async def entrypoint_text(
-    message: Message, state: FSMContext, session: AsyncSession
-) -> None:
-    await entrypoint(
-        message=message,
-        state=state,
-        session=session,
-        check_correct_coroutine=add_note(message, session),
-    )
-
-
-@form_router.message(F.photo)
-async def entrypoint_photo(
-    message: Message, state: FSMContext, session: AsyncSession
-) -> None:
-    await entrypoint(
-        message=message,
-        state=state,
-        session=session,
-        check_correct_coroutine=upload_photo(message, session),
-    )
+    await note_user.append_note(result["text"])
 
 
 async def main():
