@@ -7,7 +7,6 @@ class User(Base):
     __tablename__ = "users"
 
     user_id = Column(BigInteger, primary_key=True, unique=True, autoincrement=False)
-    github_username = Column(String(50))
     github_token = Column(String(100))
     note_path = Column(String(300))
     notes_repository = Column(String(50))

@@ -1,3 +1,6 @@
+from io import BytesIO
+from pathlib import Path
+from datetime import datetime
 import github
 from github.ContentFile import ContentFile
 from github.Repository import Repository
@@ -6,12 +9,21 @@ from bot.db.models import User
 
 
 class NoteUser(object):
-    def __init__(self, user: User):
-        self.github_username = user.github_username
-        self.github_repo = user.notes_repository
-        self.note_path = user.note_path
-        self.branch = user.notes_branch
-        self.github = github.Github(user.github_token)
+    def __init__(self, github_token, notes_repository, notes_branch, note_path=None):
+        self.github_repo = notes_repository
+        self.note_path = note_path
+        self.branch = notes_branch
+        self.github = github.Github(github_token)
+        self.github_username = self.github.get_user().login
+
+    @classmethod
+    def create_from_orm(cls, user: User):
+        return cls(
+            github_token=user.github_token,
+            notes_repository=user.notes_repository,
+            notes_branch=user.notes_branch,
+            note_path=user.note_path,
+        )
 
     @property
     def repository(self):
@@ -24,6 +36,25 @@ class NoteUser(object):
     async def append_note(self, note_content):
         adder = NoteAdder(self.remote_repo, self.note_path, self.branch)
         await adder(note_content)
+
+    async def upload_photo(self, photo: BytesIO, assets_folder=""):
+        time_now = datetime.now()
+        formatted_time = time_now.strftime("%H_%M_%S")
+        photo_name = f"from_telegram_{formatted_time}.jpg"
+        photo_path = str(Path(assets_folder) / photo_name)
+
+        created_file = self.remote_repo.create_file(
+            path=photo_path,
+            message=f"Upload photo from telegram: {formatted_time}",
+            content=photo.read(),
+            branch=self.branch,
+        )
+
+        branch_refs = self.remote_repo.get_git_ref(f"heads/{self.branch}")
+        branch_refs.edit(sha=created_file["commit"].sha)
+
+    async def get_contents_by_path(self, file_path=""):
+        return self.remote_repo.get_contents(file_path, ref=self.branch)
 
 
 class NoteAdder(object):
@@ -50,7 +81,9 @@ class NoteAdder(object):
     def get_changes_element(self, content):
         """get changes element of file after append new content"""
 
-        prev_content_file: ContentFile = self.remote_repo.get_contents(self.file_path)
+        prev_content_file: ContentFile = self.remote_repo.get_contents(
+            self.file_path, ref=self.branch
+        )
         prev_content = prev_content_file.decoded_content
         prev_content = prev_content.decode("utf-8")
 

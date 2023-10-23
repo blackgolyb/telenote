@@ -12,7 +12,6 @@ class UserDAL(BaseDAL):
     async def create_user(
         self,
         user_id: int,
-        github_username: str,
         github_token: str,
         note_path: str,
         notes_repository: str,
@@ -21,7 +20,6 @@ class UserDAL(BaseDAL):
         await self.session.merge(
             User(
                 user_id=user_id,
-                github_username=github_username,
                 github_token=github_token,
                 note_path=note_path,
                 notes_repository=notes_repository,
