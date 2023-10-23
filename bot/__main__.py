@@ -21,7 +21,6 @@ from aiogram.types import (
     ReplyKeyboardRemove,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ContentType,
 )
 import github
 
@@ -35,7 +34,7 @@ form_router = Router()
 
 
 class RegisterForm(StatesGroup):
-    register_start = State()
+    register_start = State(state=False)
     github_username = State()
     github_token = State()
     note_path = State()
@@ -59,6 +58,7 @@ async def command_start(
         )
         return
 
+    await state.update_data(register_start=True)
     await state.set_state(RegisterForm.register_start)
     await message.answer(
         f"Nice to meet you, {html.quote(message.from_user.full_name)}!\nLet's get started with registration",
@@ -167,6 +167,8 @@ async def process_github_token(message: Message, state: FSMContext) -> None:
 
     try:
         g = github.Github(github_token)
+        github_user = g.get_user()
+        github_username = github_user.login
     except github.GithubException:
         await message.answer(
             "Github token is incorrect. Try again.",
@@ -174,8 +176,7 @@ async def process_github_token(message: Message, state: FSMContext) -> None:
         )
         return
 
-    github_username = g.get_user().login
-    repos_names = [repo.name for repo in g.get_user().get_repos()]
+    repos_names = [repo.name for repo in github_user.get_repos()]
     repos_names_keyboard = [KeyboardButton(text=name) for name in repos_names]
 
     keyboard = batch(repos_names_keyboard, 3)
@@ -455,7 +456,7 @@ async def process_note_path_select(
 
 
 @form_router.message(RegisterForm.register_end, F.text)
-async def add_note(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def add_note(message: Message, session: AsyncSession) -> None:
     dal = UserDAL(session)
     user = await dal.get_user_by_id(message.from_user.id)
     note_user = NoteUser.create_from_orm(user)
@@ -463,26 +464,58 @@ async def add_note(message: Message, state: FSMContext, session: AsyncSession) -
 
 
 @form_router.message(RegisterForm.register_end, F.photo)
-async def upload_photo(
-    message: Message, state: FSMContext, session: AsyncSession
-) -> None:
+async def upload_photo(message: Message, session: AsyncSession) -> None:
     dal = UserDAL(session)
     user = await dal.get_user_by_id(message.from_user.id)
     note_user = NoteUser.create_from_orm(user)
 
     photo = await message.bot.get_file(message.photo[-1].file_id)
     photo_b = await message.bot.download_file(photo.file_path)
-    # photo.
-
-    # photo_b = BytesIO()
-    # photo_b.write(photo.getvalue())
-    # photo_b.seek(0)
 
     await note_user.upload_photo(photo_b)
 
 
+async def entrypoint(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    check_correct_coroutine,
+) -> None:
+    dal = UserDAL(session)
+    user = await dal.get_user_by_id(message.from_user.id)
+    if user is None:
+        await message.answer("Please register first.")
+        return
+
+    await state.set_state(RegisterForm.register_end)
+    await check_correct_coroutine
+
+
+@form_router.message(F.text)
+async def entrypoint_text(
+    message: Message, state: FSMContext, session: AsyncSession
+) -> None:
+    await entrypoint(
+        message=message,
+        state=state,
+        session=session,
+        check_correct_coroutine=add_note(message, session),
+    )
+
+
+@form_router.message(F.photo)
+async def entrypoint_photo(
+    message: Message, state: FSMContext, session: AsyncSession
+) -> None:
+    await entrypoint(
+        message=message,
+        state=state,
+        session=session,
+        check_correct_coroutine=upload_photo(message, session),
+    )
+
+
 async def main():
-    print(config.db.db_url)
     engine = create_async_engine(url=config.db.db_url, echo=True)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
