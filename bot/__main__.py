@@ -195,7 +195,7 @@ async def process_notes_repository(message: Message, state: FSMContext) -> None:
     )
 
 
-class GithubFileSelection(object):
+class GithubFileSelector(object):
     def __init__(self, token, repository, branch) -> None:
         self.repository = repository
         self.branch = branch
@@ -207,25 +207,21 @@ class GithubFileSelection(object):
             raise ValueError(
                 f"We also recommend to use short prefix name\n"
                 f"prefix required, usage example: "
-                f"`class {cls.__name__}(GithubFileSelection, prefix='my_file_selection'): ...`"
+                f"`class {cls.__name__}(GithubFileSelector, prefix='my_file_selector'): ...`"
             )
         prefix = kwargs.pop("prefix")
         cls.__prefix__ = prefix
-        GithubFileSelection._init_callbacks(cls, prefix)
+        GithubFileSelector._init_callbacks(cls, prefix)
         super().__init_subclass__(**kwargs)
 
     @classmethod
     def _init_callbacks(cls, sub_cls, prefix):
-        class BackNavigationCallback(CallbackData, prefix=f"{prefix}_nb"):
-            path: str
-
-        class SelectNavigationCallback(CallbackData, prefix=f"{prefix}_ns"):
+        class SelectNavigationCallback(CallbackData, prefix=f"{prefix}_s"):
             path: str
 
         class NavigationCallback(CallbackData, prefix=f"{prefix}_n"):
             path: str
 
-        sub_cls.BackNavigationCallback = BackNavigationCallback
         sub_cls.SelectNavigationCallback = SelectNavigationCallback
         sub_cls.NavigationCallback = NavigationCallback
 
@@ -261,7 +257,7 @@ class GithubFileSelection(object):
                     [
                         InlineKeyboardButton(
                             text="<- Back",
-                            callback_data=self.BackNavigationCallback(
+                            callback_data=self.NavigationCallback(
                                 path=self.get_parent_path(file_path)
                             ).pack(),
                         ),
@@ -302,7 +298,9 @@ class GithubFileSelection(object):
                 *options_keyboards,
             ]
 
-            result["text"] = "Choose directory or file."
+            result["text"] = (
+                "Choose directory or file.\n" f"Current directory: {file_path}"
+            )
             result["keyboard"] = InlineKeyboardMarkup(
                 inline_keyboard=keyboard,
             )
@@ -311,7 +309,7 @@ class GithubFileSelection(object):
                 [
                     InlineKeyboardButton(
                         text="<- Back",
-                        callback_data=self.BackNavigationCallback(
+                        callback_data=self.NavigationCallback(
                             path=self.get_parent_path(file_path)
                         ).pack(),
                     ),
@@ -333,7 +331,126 @@ class GithubFileSelection(object):
         return result
 
 
-class NoteFileSelector(GithubFileSelection, prefix="nfs"):
+class NoteFileSelector(GithubFileSelector, prefix="nfs"):
+    ...
+
+
+class GithubFolderSelection(object):
+    def __init__(self, token, repository, branch) -> None:
+        self.repository = repository
+        self.branch = branch
+        self.github = github.Github(token)
+        self.username = self.github.get_user().login
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        if "prefix" not in kwargs:
+            raise ValueError(
+                f"We also recommend to use short prefix name\n"
+                f"prefix required, usage example: "
+                f"`class {cls.__name__}(GithubFolderSelection, prefix='my_folder_selector'): ...`"
+            )
+        prefix = kwargs.pop("prefix")
+        cls.__prefix__ = prefix
+        GithubFolderSelection._init_callbacks(cls, prefix)
+        super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def _init_callbacks(cls, sub_cls, prefix):
+        class SelectNavigationCallback(CallbackData, prefix=f"{prefix}_s"):
+            path: str
+
+        class NavigationCallback(CallbackData, prefix=f"{prefix}_n"):
+            path: str
+
+        sub_cls.SelectNavigationCallback = SelectNavigationCallback
+        sub_cls.NavigationCallback = NavigationCallback
+
+    @property
+    def full_repository(self):
+        return f"{self.username}/{self.repository}"
+
+    @property
+    def remote_repository(self):
+        return self.github.get_repo(self.full_repository)
+
+    @staticmethod
+    def get_parent_path(path):
+        path = Path(path)
+        parent = str(path.parent)
+        return parent if parent != "." else "/"
+
+    async def get_contents_by_path(self, file_path="/"):
+        return self.remote_repository.get_contents(file_path, ref=self.branch)
+
+    async def get_selection_keyboard(self, file_path="/"):
+        file_contents = await self.get_contents_by_path(file_path)
+        result = {}
+
+        if not isinstance(file_contents, list) and file_contents.type == "dir":
+            file_contents = [file_contents]
+
+        if not isinstance(file_contents, list):
+            raise ValueError("file_contents can not be file")
+
+        if file_path == "/":
+            options_keyboards = [
+                [
+                    InlineKeyboardButton(
+                        text="Select",
+                        callback_data=self.SelectNavigationCallback(
+                            path=file_path
+                        ).pack(),
+                    ),
+                ]
+            ]
+        else:
+            options_keyboards = [
+                [
+                    InlineKeyboardButton(
+                        text="<- Back",
+                        callback_data=self.NavigationCallback(
+                            path=self.get_parent_path(file_path)
+                        ).pack(),
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Select",
+                        callback_data=self.SelectNavigationCallback(
+                            path=file_path
+                        ).pack(),
+                    ),
+                ],
+            ]
+
+        dirs_contents = list(
+            filter(lambda content: content.type == "dir", file_contents)
+        )
+
+        def create_dirs_btn(content):
+            return InlineKeyboardButton(
+                text=f"📁  {content.name}",
+                callback_data=self.NavigationCallback(path=content.path).pack(),
+            )
+
+        files_keyboards = [create_dirs_btn(content) for content in dirs_contents]
+        files_keyboards = batch(files_keyboards, 3)
+
+        keyboard = [
+            *files_keyboards,
+            *options_keyboards,
+        ]
+
+        result["text"] = f"Choose directory.\nCurrent directory: {file_path}"
+        result["keyboard"] = InlineKeyboardMarkup(
+            inline_keyboard=keyboard,
+        )
+        ...
+
+        return result
+
+
+class AssentFolderSelector(GithubFolderSelection, prefix="afs"):
     ...
 
 
@@ -363,28 +480,9 @@ async def process_notes_branch(message: Message, state: FSMContext) -> None:
 
 
 @form_router.callback_query(NoteFileSelector.NavigationCallback.filter())
-async def process_note_path(
+async def process_note_path_navigate(
     query: CallbackQuery,
     callback_data: NoteFileSelector.NavigationCallback,
-    state: FSMContext,
-) -> None:
-    register_data = await state.get_data()
-    selector = NoteFileSelector(
-        token=register_data.get("github_token"),
-        repository=register_data.get("notes_repository"),
-        branch=register_data.get("notes_branch"),
-    )
-    answer_data = await selector.get_selection_keyboard(callback_data.path)
-
-    await query.message.edit_text(
-        answer_data["text"], reply_markup=answer_data["keyboard"]
-    )
-
-
-@form_router.callback_query(NoteFileSelector.BackNavigationCallback.filter())
-async def process_note_path_back(
-    query: CallbackQuery,
-    callback_data: NoteFileSelector.BackNavigationCallback,
     state: FSMContext,
 ) -> None:
     register_data = await state.get_data()
@@ -421,8 +519,65 @@ async def process_note_path_select(
         note_path=register_data.get("note_path"),
     )
 
-    await query.answer(
+    await query.message.answer(
         "Ok all finished!",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def navigate_assets_folder(user_id: int, path: str, session: AsyncSession):
+    dal = UserDAL(session)
+    User = await dal.get_user_by_id(user_id)
+    selector = AssentFolderSelector(
+        token=User.github_token,
+        repository=User.notes_repository,
+        branch=User.notes_branch,
+    )
+    return await selector.get_selection_keyboard(path)
+
+
+@form_router.message(Command("set_assets_folder"))
+async def set_assets_folder(message: Message, session: AsyncSession) -> None:
+    answer_data = await navigate_assets_folder(message.from_user.id, "/", session)
+
+    await message.answer(
+        "In which folder would you like to store your assets?",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    await message.answer(
+        answer_data["text"],
+        reply_markup=answer_data["keyboard"],
+    )
+
+
+@form_router.callback_query(AssentFolderSelector.NavigationCallback.filter())
+async def navigate_assets_folder_handler(
+    query: CallbackQuery,
+    callback_data: AssentFolderSelector.NavigationCallback,
+    session: AsyncSession,
+) -> None:
+    answer_data = await navigate_assets_folder(
+        query.from_user.id, callback_data.path, session
+    )
+
+    await query.message.edit_text(
+        answer_data["text"], reply_markup=answer_data["keyboard"]
+    )
+
+
+@form_router.callback_query(AssentFolderSelector.SelectNavigationCallback.filter())
+async def select_assets_folder(
+    query: CallbackQuery,
+    callback_data: AssentFolderSelector.SelectNavigationCallback,
+    session: AsyncSession,
+) -> None:
+    dal = UserDAL(session)
+    # User = await dal.get_user_by_id(query.from_user.id)
+    # await User.update_data(assets_folder=callback_data.path)
+
+    await query.message.answer(
+        callback_data.path,
         reply_markup=ReplyKeyboardRemove(),
     )
 

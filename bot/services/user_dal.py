@@ -28,7 +28,7 @@ class UserDAL(BaseDAL):
         )
         await self.session.commit()
 
-    async def get_user_by_id(self, user_id: int):
+    async def get_user_by_id(self, user_id: int) -> User:
         query = select(User).where(User.user_id == user_id)
         res = await self.session.execute(query)
         user_row = res.fetchone()
