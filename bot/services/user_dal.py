@@ -15,7 +15,7 @@ class UserDAL(BaseDAL):
             **kwargs,
         )
         self.session.add(new_user)
-        await self.session.flush()
+        await self.session.commit()
 
     async def get_user_by_id(self, user_id: int) -> User:
         query = select(User).where(User.user_id == user_id)

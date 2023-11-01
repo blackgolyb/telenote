@@ -1,0 +1,42 @@
+# Set python version
+ARG BASE_CONTAINER=wallies/python-cuda:3.11-cuda12.2-runtime
+
+# Set the base image 
+FROM --platform=linux/amd64 $BASE_CONTAINER
+
+# dont write pyc files
+ENV PYTHONDONTWRITEBYTECODE 1
+# dont buffer to stdout/stderr
+ENV PYTHONUNBUFFERED 1
+
+ENV CUDNN_VERSION=8.9.5.29
+
+# RUN sudo cp /var/cudnn-local-repo-*/cudnn-local-*-keyring.gpg /usr/share/keyrings/\
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends libcudnn8=$CUDNN_VERSION-1+cuda12.2 && \
+    apt-mark hold libcudnn8 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Sets the user name to use when running the image.
+USER root
+RUN apt update && \
+    apt install --no-install-recommends -y build-essential gcc && \
+    apt clean && rm -rf /var/lib/apt/lists/* \
+    && pip install poetry \
+    && poetry config virtualenvs.in-project true
+
+
+# Make a directory for app
+WORKDIR /app
+
+# Install dependencies
+COPY ./poetry.lock ./pyproject.toml ./
+
+# Copy source code
+COPY . .
+
+RUN poetry install --only main
+RUN ["chmod", "+x", "/app/run_migartions.sh"]
+
+# Run the application
+CMD ["./.venv/bin/python", "bot"]

@@ -9,9 +9,9 @@ from bot.db.models import User
 
 
 class NoteUser(object):
-    def __init__(self, github_token, notes_repository, notes_branch, note_path=None):
+    def __init__(self, github_token, notes_repository, notes_branch, note_file=None):
         self.github_repo = notes_repository
-        self.note_path = note_path
+        self.note_file = note_file
         self.branch = notes_branch
         self.github = github.Github(github_token)
         self.github_username = self.github.get_user().login
@@ -22,7 +22,7 @@ class NoteUser(object):
             github_token=user.github_token,
             notes_repository=user.notes_repository,
             notes_branch=user.notes_branch,
-            note_path=user.note_path,
+            note_file=user.note_file,
         )
 
     @property
@@ -34,7 +34,7 @@ class NoteUser(object):
         return self.github.get_repo(self.repository)
 
     async def append_note(self, note_content):
-        adder = NoteAdder(self.remote_repo, self.note_path, self.branch)
+        adder = NoteAdder(self.remote_repo, self.note_file, self.branch)
         await adder(note_content)
 
     async def upload_photo(self, photo: BytesIO, assets_folder=""):

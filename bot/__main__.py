@@ -23,7 +23,8 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 import github
-import whisper
+
+# import whisper
 
 from bot.middlewares import DbSessionMiddleware
 from bot.services.user_dal import UserDAL
@@ -31,8 +32,8 @@ from bot.services.note_appender import NoteUser
 from bot.config import config
 from bot.services.utils import batch
 
-model_size = "base"
-whisper_model = whisper.load_model(model_size)
+# model_size = "base"
+# whisper_model = whisper.load_model(model_size)
 form_router = Router()
 
 
@@ -40,8 +41,8 @@ class RegisterForm(StatesGroup):
     register_start = State(state=False)
     github_username = State()
     github_token = State()
-    note_path = State()
-    current_note_path = State()
+    note_file = State()
+    current_note_file = State()
     notes_repository = State()
     notes_branch = State()
     register_end = State()
@@ -458,7 +459,7 @@ class AssentFolderSelector(GithubFolderSelection, prefix="afs"):
 async def process_notes_branch(message: Message, state: FSMContext) -> None:
     branch = message.text
     await state.update_data(notes_branch=branch)
-    await state.set_state(RegisterForm.note_path)
+    await state.set_state(RegisterForm.note_file)
 
     register_data = await state.get_data()
     selector = NoteFileSelector(
@@ -480,7 +481,7 @@ async def process_notes_branch(message: Message, state: FSMContext) -> None:
 
 
 @form_router.callback_query(NoteFileSelector.NavigationCallback.filter())
-async def process_note_path_navigate(
+async def process_note_file_navigate(
     query: CallbackQuery,
     callback_data: NoteFileSelector.NavigationCallback,
     state: FSMContext,
@@ -499,13 +500,13 @@ async def process_note_path_navigate(
 
 
 @form_router.callback_query(NoteFileSelector.SelectNavigationCallback.filter())
-async def process_note_path_select(
+async def process_note_file_select(
     query: CallbackQuery,
     callback_data: NoteFileSelector.SelectNavigationCallback,
     state: FSMContext,
     session: AsyncSession,
 ) -> None:
-    await state.update_data(note_path=callback_data.path)
+    await state.update_data(note_file=callback_data.path)
     await state.set_state(RegisterForm.register_end)
 
     register_data = await state.get_data()
@@ -516,8 +517,13 @@ async def process_note_path_select(
         github_token=register_data.get("github_token"),
         notes_branch=register_data.get("notes_branch"),
         notes_repository=register_data.get("notes_repository"),
-        note_path=register_data.get("note_path"),
+        note_file=register_data.get("note_file"),
+        assets_folder="/",
+        is_registered=False,
     )
+
+    # user = await dal.get_user_by_id(query.from_user.id)
+    # print(user.github_token)
 
     await query.message.answer(
         "Ok all finished!",
@@ -527,11 +533,11 @@ async def process_note_path_select(
 
 async def navigate_assets_folder(user_id: int, path: str, session: AsyncSession):
     dal = UserDAL(session)
-    User = await dal.get_user_by_id(user_id)
+    user = await dal.get_user_by_id(user_id)
     selector = AssentFolderSelector(
-        token=User.github_token,
-        repository=User.notes_repository,
-        branch=User.notes_branch,
+        token=user.github_token,
+        repository=user.notes_repository,
+        branch=user.notes_branch,
     )
     return await selector.get_selection_keyboard(path)
 
@@ -630,28 +636,29 @@ async def upload_photo(message: Message, session: AsyncSession, **kwargs) -> Non
     user = await dal.get_user_by_id(message.from_user.id)
     note_user = NoteUser.create_from_orm(user)
 
-    photo = await message.bot.get_file(message.photo[-1].file_id)
-    photo_b = await message.bot.download_file(photo.file_path)
+    for message_photo in message.photo:
+        photo = await message.bot.get_file(message_photo[-1].file_id)
+        photo_b = await message.bot.download_file(photo.file_path)
 
-    await note_user.upload_photo(photo_b)
+        await note_user.upload_photo(photo_b)
 
 
-@verify_register(form_router.message, F.voice)
-async def add_note_from_voice(
-    message: Message, session: AsyncSession, **kwargs
-) -> None:
-    dal = UserDAL(session)
-    user = await dal.get_user_by_id(message.from_user.id)
-    note_user = NoteUser.create_from_orm(user)
+# @verify_register(form_router.message, F.voice)
+# async def add_note_from_voice(
+#     message: Message, session: AsyncSession, **kwargs
+# ) -> None:
+#     dal = UserDAL(session)
+#     user = await dal.get_user_by_id(message.from_user.id)
+#     note_user = NoteUser.create_from_orm(user)
 
-    fname = f"{message.from_user.id}_{message.message_id}.mp3"
-    voice = await message.bot.get_file(message.voice.file_id)
-    await message.bot.download_file(voice.file_path, fname)
+#     fname = f"{message.from_user.id}_{message.message_id}.mp3"
+#     voice = await message.bot.get_file(message.voice.file_id)
+#     await message.bot.download_file(voice.file_path, fname)
 
-    result = whisper_model.transcribe(fname)
-    os.remove(fname)
+#     result = whisper_model.transcribe(fname)
+#     os.remove(fname)
 
-    await note_user.append_note(result["text"])
+#     await note_user.append_note(result["text"])
 
 
 async def main():
