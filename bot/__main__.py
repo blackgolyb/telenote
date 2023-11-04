@@ -27,7 +27,7 @@ import github
 # import whisper
 
 from bot.middlewares import DbSessionMiddleware
-from bot.services.user_dal import UserDAL
+from bot.db.user_dal import UserDAL
 from bot.services.note_appender import NoteUser
 from bot.config import config
 from bot.services.utils import batch
