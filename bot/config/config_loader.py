@@ -8,6 +8,11 @@ class Bot:
 
 
 @dataclass
+class General:
+    secret_key: str
+
+
+@dataclass
 class DB:
     host: str
     port: int
@@ -38,9 +43,10 @@ class DB:
 class Config:
     bot: Bot
     db: DB
+    general: General
 
 
-def load_config():
+def load_config() -> Config:
     env = Env()
     env.read_envfile()
 
@@ -53,4 +59,5 @@ def load_config():
             user=env.str("DB_USER"),
             password=env.str("DB_PASSWORD"),
         ),
+        general=General(secret_key=env.str("SECRET_KEY")),
     )

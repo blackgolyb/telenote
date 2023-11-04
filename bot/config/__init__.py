@@ -1,4 +1,4 @@
-from .config_loader import load_config
+from .config_loader import load_config, Config
 
 
-config = load_config()
+config: Config = load_config()
