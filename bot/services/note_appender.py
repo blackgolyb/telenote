@@ -1,6 +1,7 @@
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from datetime import datetime
+
 import github
 from github.ContentFile import ContentFile
 from github.Repository import Repository
@@ -8,7 +9,7 @@ from github.Repository import Repository
 from bot.db.models import User
 
 
-class NoteUser(object):
+class NoteUser:
     def __init__(self, github_token, notes_repository, notes_branch, note_file=None):
         self.github_repo = notes_repository
         self.note_file = note_file
@@ -57,7 +58,7 @@ class NoteUser(object):
         return self.remote_repo.get_contents(file_path, ref=self.branch)
 
 
-class NoteAdder(object):
+class NoteAdder:
     APPEND_FORMAT = "{prev}\n{new}"
 
     def __init__(self, remote_repo: Repository, file_path: str, branch: str):

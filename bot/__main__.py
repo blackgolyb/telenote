@@ -195,7 +195,7 @@ async def process_notes_repository(message: Message, state: FSMContext) -> None:
     )
 
 
-class GithubFileSelector(object):
+class GithubFileSelector:
     def __init__(self, token, repository, branch) -> None:
         self.repository = repository
         self.branch = branch
@@ -335,7 +335,7 @@ class NoteFileSelector(GithubFileSelector, prefix="nfs"):
     ...
 
 
-class GithubFolderSelection(object):
+class GithubFolderSelection:
     def __init__(self, token, repository, branch) -> None:
         self.repository = repository
         self.branch = branch
@@ -577,7 +577,7 @@ async def select_assets_folder(
     callback_data: AssentFolderSelector.SelectNavigationCallback,
     session: AsyncSession,
 ) -> None:
-    dal = UserDAL(session)
+    # dal = UserDAL(session)
     # User = await dal.get_user_by_id(query.from_user.id)
     # await User.update_data(assets_folder=callback_data.path)
 

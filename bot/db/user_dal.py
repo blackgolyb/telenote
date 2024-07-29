@@ -3,7 +3,7 @@ from sqlalchemy import select, update
 from bot.db.models import User
 
 
-class BaseDAL(object):
+class BaseDAL:
     def __init__(self, session):
         self.session = session
 
