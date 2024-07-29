@@ -1,35 +1,34 @@
 import asyncio
 import logging
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
+import github
 from aiogram import Bot, Dispatcher, F, Router, html
-from aiogram.utils.callback_answer import CallbackAnswerMiddleware
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types.callback_query import CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
 )
-import github
+from aiogram.types.callback_query import CallbackQuery
+from aiogram.utils.callback_answer import CallbackAnswerMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from bot.config import config
+from bot.db.user_dal import UserDAL
 
 # import whisper
-
 from bot.middlewares import DbSessionMiddleware
-from bot.db.user_dal import UserDAL
 from bot.services.note_appender import NoteUser
-from bot.config import config
 from bot.services.utils import batch
 
 # model_size = "base"
@@ -588,7 +587,7 @@ async def select_assets_folder(
     )
 
 
-class RegistrationVerifier(object):
+class RegistrationVerifier:
     def __init__(self, registration_verified_filter):
         self.registration_verified_filter = registration_verified_filter
 
@@ -662,10 +661,13 @@ async def upload_photo(message: Message, session: AsyncSession, **kwargs) -> Non
 
 
 async def main():
-    engine = create_async_engine(url=config.db.db_url, echo=True)
+    engine = create_async_engine(url=str(config.db.url), echo=True)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
-    bot = Bot(token=config.bot.token, parse_mode=ParseMode.HTML)
+    bot = Bot(
+        token=config.bot.token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher()
 
     dp.update.middleware(DbSessionMiddleware(session_pool=sessionmaker))
