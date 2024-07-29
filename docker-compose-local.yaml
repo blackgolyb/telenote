@@ -5,7 +5,7 @@ services:
         image: postgres:16
         restart: always
         env_file:
-            - deploy.env
+            - certs/.env.dev
         ports:
             - "5432:5432"
         networks:
@@ -14,7 +14,7 @@ services:
             test:
                 [
                     "CMD-SHELL",
-                    "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'",
+                    "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'"
                 ]
             interval: 10s
             timeout: 3s
@@ -44,12 +44,9 @@ services:
             postgres:
                 condition: service_healthy
         env_file:
-            - deploy.env
-        # environment:
-        #     ALEMBIC_DATABASE_URL: "postgresql://postgres:postgres@postgres_db/postgres"
-        #     POSTGRESQL_URL: "postgresql+asyncpg://postgres:postgres@postgres_db:5432/postgres"
-        #     # SENTRY_URL: "https://2d340f23a0454ea0a23a0d2d6fbe2e1f@o4504938483875840.ingest.sentry.io/4504939751538688"
-        #     APP_PORT: "8001"
+            - certs/.env.dev
+        environment:
+            POSTGRES_HOST: "telenote_postgres"
         build:
             context: .
             dockerfile: Dockerfile

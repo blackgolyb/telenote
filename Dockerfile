@@ -24,10 +24,11 @@ WORKDIR /app
 # Install dependencies
 COPY ./poetry.lock ./pyproject.toml ./
 
+RUN poetry install --only main
+
 # Copy source code
 COPY . .
 
-RUN poetry install --only main
 RUN ["chmod", "+x", "/app/run_migartions.sh"]
 
 # Run the application
